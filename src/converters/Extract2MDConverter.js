@@ -95,7 +95,7 @@ export class Extract2MDConverter {
             this.webllmEngine = new WebLLMEngine(this.config.llm);
         }
 
-        const chunks = this._splitTextIntoChunks(text, 4096); // Split into 4096 token chunks
+        const chunks = this._splitTextIntoChunks(text, 3500); // Leave room for system prompts
         let results = [];
 
         for (let i = 0; i < chunks.length; i++) {
@@ -126,7 +126,7 @@ export class Extract2MDConverter {
         return results.join('\n\n');
     }
 
-    _splitTextIntoChunks(text, maxTokens = 4096) {
+    _splitTextIntoChunks(text, maxTokens = 3500) {
         if (tokenizer) {
             // Use tiktoken for accurate token-based splitting
             const tokens = tokenizer.encode(text);
@@ -150,7 +150,7 @@ export class Extract2MDConverter {
 
             for (const word of words) {
                 currentChunk.push(word);
-                if (currentChunk.length >= 1024) { // Reduced from 4096 to 1024
+                if (currentChunk.length >= 512) { // Reduced from 1024 to 512
                     chunks.push(currentChunk.join(' '));
                     currentChunk = [];
                 }
