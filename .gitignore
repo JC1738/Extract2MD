@@ -28,6 +28,7 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+.history
 
 # Optional: Environment variables file
 .env
