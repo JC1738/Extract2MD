@@ -112,7 +112,7 @@ export class WebLLMEngine {
             const requestOptions = {
                 messages,
                 temperature: options.temperature || 0.7,
-                max_tokens: options.maxTokens || 4096,
+                max_tokens: options.maxTokens || 4096, // Respect the provided context window
                 ...options
             };
 

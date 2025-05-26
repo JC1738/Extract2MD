@@ -98,9 +98,9 @@ export class Extract2MDConverter {
         const systemPrompt = this.config.systemPrompts?.combinedExtraction || '';
         const systemTokens = this._getTokenCount(systemPrompt);
 
-        // Calculate safe chunk size based on context window and system prompt
+        // Calculate safe chunk size with buffer
         const contextWindowSize = this.config.llm.options?.maxTokens || 4096;
-        const maxChunkTokens = Math.max(1, contextWindowSize - systemTokens);
+        const maxChunkTokens = Math.max(1, contextWindowSize - systemTokens - 500); // Add buffer
 
         const chunks = this._splitTextIntoChunks(text, maxChunkTokens);
         let results = [];
