@@ -143,14 +143,14 @@ export class Extract2MDConverter {
 
             return chunks;
         } else {
-            // Fallback to word-based splitting
+            // Fallback to word-based splitting with smaller chunk size
             const words = text.split(' ');
             let chunks = [];
             let currentChunk = [];
 
             for (const word of words) {
                 currentChunk.push(word);
-                if (currentChunk.length >= maxTokens) {
+                if (currentChunk.length >= 1024) { // Reduced from 4096 to 1024
                     chunks.push(currentChunk.join(' '));
                     currentChunk = [];
                 }
