@@ -107,12 +107,18 @@ export class WebLLMEngine {
                 message: 'Generating response...'
             });
 
+            // Validate prompt length before sending
+            const maxTokens = options.maxTokens || 4096;
+            if (this._getTokenCount(prompt) > maxTokens) {
+                throw new Error(`Prompt exceeds context window size. Got ${this._getTokenCount(prompt)} tokens, max: ${maxTokens}`);
+            }
+
             const messages = [{ role: "user", content: prompt }];
             
             const requestOptions = {
                 messages,
                 temperature: options.temperature || 0.7,
-                max_tokens: options.maxTokens || 4096, // Respect the provided context window
+                max_tokens: options.maxTokens || 4096,
                 ...options
             };
 
@@ -255,6 +261,22 @@ export class WebLLMEngine {
                     error
                 });
             }
+        }
+    }
+
+    /**
+     * Helper to count tokens in a string using tiktoken if available.
+     */
+    _getTokenCount(text) {
+        try {
+            // Import tiktoken only when needed and ensure it's available
+            const { getTokenizer } = require('tiktoken');
+            const tokenizer = getTokenizer('gpt2');
+            return tokenizer.encode(text).length;
+        } catch (e) {
+            console.warn('Failed to load tiktoken. Falling back to word-based token count.');
+            // Fallback: assume 1 token per word
+            return text.split(' ').length;
         }
     }
 }
