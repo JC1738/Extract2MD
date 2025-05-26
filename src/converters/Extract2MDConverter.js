@@ -5,6 +5,16 @@ import OutputParser from '../utils/OutputParser.js';
 import SystemPrompts from '../utils/SystemPrompts.js';
 import ConfigValidator from '../utils/ConfigValidator.js';
 
+// Import tiktoken for accurate token-based splitting
+let tokenizer = null;
+try {
+  // Try to import the browser version of tiktoken (WASM)
+  const { getTokenizer } = await import('tiktoken');
+  tokenizer = await getTokenizer('gpt2'); // Use GPT-2 tokenizer as a default
+} catch (e) {
+  console.warn('Failed to load tiktoken. Falling back to word-based splitting.');
+}
+
 export class Extract2MDConverter {
     constructor(config = {}) {
         // Validate and normalize configuration
@@ -117,23 +127,40 @@ export class Extract2MDConverter {
     }
 
     _splitTextIntoChunks(text, maxTokens = 4096) {
-        // Simple token-based splitting (placeholder)
-        const words = text.split(' ');
-        let chunks = [];
-        let currentChunk = [];
+        if (tokenizer) {
+            // Use tiktoken for accurate token-based splitting
+            const tokens = tokenizer.encode(text);
+            const chunks = [];
+            let start = 0;
 
-        for (const word of words) {
-            currentChunk.push(word);
-            if (currentChunk.length >= maxTokens) {
-                chunks.push(currentChunk.join(' '));
-                currentChunk = [];
+            while (start < tokens.length) {
+                const end = Math.min(start + maxTokens, tokens.length);
+                const chunkTokens = tokens.slice(start, end);
+                const chunkText = tokenizer.decode(chunkTokens);
+                chunks.push(chunkText);
+                start = end;
             }
-        }
 
-        if (currentChunk.length > 0) {
-            chunks.push(currentChunk.join(' '));
-        }
+            return chunks;
+        } else {
+            // Fallback to word-based splitting
+            const words = text.split(' ');
+            let chunks = [];
+            let currentChunk = [];
 
-        return chunks;
+            for (const word of words) {
+                currentChunk.push(word);
+                if (currentChunk.length >= maxTokens) {
+                    chunks.push(currentChunk.join(' '));
+                    currentChunk = [];
+                }
+            }
+
+            if (currentChunk.length > 0) {
+                chunks.push(currentChunk.join(' '));
+            }
+
+            return chunks;
+        }
     }
 }
