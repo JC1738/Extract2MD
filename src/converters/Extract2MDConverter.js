@@ -95,7 +95,7 @@ export class Extract2MDConverter {
             this.webllmEngine = new WebLLMEngine(this.config.llm);
         }
 
-        const chunks = this._splitTextIntoChunks(text, 3500); // Leave room for system prompts
+        const chunks = this._splitTextIntoChunks(text, 2000); // Further reduced to ensure safety
         let results = [];
 
         for (let i = 0; i < chunks.length; i++) {
@@ -108,7 +108,13 @@ export class Extract2MDConverter {
                     totalPages: chunks.length
                 });
 
-                const result = await this.webllmEngine.generate(chunk, this.config.llm.options);
+                // Ensure the final prompt (chunk + system prompts) is under context window size
+                const fullPrompt = this._buildFullPrompt(chunk);
+                if (this._getTokenCount(fullPrompt) > 4096) {
+                    throw new Error(`Prompt too long: ${this._getTokenCount(fullPrompt)} tokens`);
+                }
+
+                const result = await this.webllmEngine.generate(fullPrompt, this.config.llm.options);
                 results.push(result);
 
                 this.progressCallback({
@@ -126,7 +132,21 @@ export class Extract2MDConverter {
         return results.join('\n\n');
     }
 
-    _splitTextIntoChunks(text, maxTokens = 3500) {
+    _buildFullPrompt(chunk) {
+        const systemPrompt = this.config.systemPrompts?.combinedExtraction || '';
+        return `${systemPrompt}\n\n${chunk}`;
+    }
+
+    _getTokenCount(text) {
+        if (tokenizer) {
+            return tokenizer.encode(text).length;
+        } else {
+            // Fallback: assume 1 token per word
+            return text.split(' ').length;
+        }
+    }
+
+    _splitTextIntoChunks(text, maxTokens = 2000) {
         if (tokenizer) {
             // Use tiktoken for accurate token-based splitting
             const tokens = tokenizer.encode(text);
