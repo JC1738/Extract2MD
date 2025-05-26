@@ -95,7 +95,14 @@ export class Extract2MDConverter {
             this.webllmEngine = new WebLLMEngine(this.config.llm);
         }
 
-        const chunks = this._splitTextIntoChunks(text, 2000); // Further reduced to ensure safety
+        const systemPrompt = this.config.systemPrompts?.combinedExtraction || '';
+        const systemTokens = this._getTokenCount(systemPrompt);
+
+        // Calculate safe chunk size based on context window and system prompt
+        const contextWindowSize = this.config.llm.options?.maxTokens || 4096;
+        const maxChunkTokens = Math.max(1, contextWindowSize - systemTokens);
+
+        const chunks = this._splitTextIntoChunks(text, maxChunkTokens);
         let results = [];
 
         for (let i = 0; i < chunks.length; i++) {
@@ -110,7 +117,7 @@ export class Extract2MDConverter {
 
                 // Ensure the final prompt (chunk + system prompts) is under context window size
                 const fullPrompt = this._buildFullPrompt(chunk);
-                if (this._getTokenCount(fullPrompt) > 4096) {
+                if (this._getTokenCount(fullPrompt) > contextWindowSize) {
                     throw new Error(`Prompt too long: ${this._getTokenCount(fullPrompt)} tokens`);
                 }
 
