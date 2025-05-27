@@ -101,24 +101,37 @@ export class WebLLMEngine {
             throw new Error('WebLLM engine is not initialized. Call initialize() first.');
         }
 
+        const {
+            temperature = 0.7,
+            maxTokens = 4096,
+            context_window_size = 4096,
+            sliding_window_size
+        } = options;
+
         try {
             this.progressCallback({
                 stage: 'webllm_generate_start',
                 message: 'Generating response...'
             });
 
-            // Validate prompt length before sending
-            const maxTokens = options.maxTokens || 4096;
-            if (this._getTokenCount(prompt) > maxTokens) {
-                throw new Error(`Prompt exceeds context window size. Got ${this._getTokenCount(prompt)} tokens, max: ${maxTokens}`);
+            const tokenCount = this._getTokenCount(prompt);
+
+            if (tokenCount > context_window_size) {
+                console.warn(`Prompt exceeds context window size: ${tokenCount} tokens > ${context_window_size}`);
+
+                if (sliding_window_size && sliding_window_size < tokenCount) {
+                    return this._processWithSlidingWindow(prompt, options);
+                } else {
+                    throw new Error(`Prompt tokens exceed context window size: ${tokenCount}; context window size: ${context_window_size}`);
+                }
             }
 
             const messages = [{ role: "user", content: prompt }];
             
             const requestOptions = {
                 messages,
-                temperature: options.temperature || 0.7,
-                max_tokens: options.maxTokens || 4096,
+                temperature,
+                max_tokens: maxTokens,
                 ...options
             };
 
@@ -144,6 +157,59 @@ export class WebLLMEngine {
                 error
             });
             throw new Error(`Text generation failed: ${error.message}`);
+        }
+    }
+
+    /**
+     * Process long prompts using a sliding window approach.
+     */
+    _processWithSlidingWindow(prompt, options) {
+        const { sliding_window_size = 2048 } = options;
+        const tokens = this._getTokenList(prompt);
+        let result = '';
+        let i = 0;
+
+        while (i < tokens.length) {
+            const chunk = tokens.slice(i, i + sliding_window_size).join(' ');
+            const response = this.engine.chat.completions.create({
+                messages: [{ role: "user", content: chunk }],
+                temperature: options.temperature || 0.7,
+                max_tokens: options.maxTokens || 4096
+            });
+
+            result += (response.choices[0].message.content || '');
+            i += sliding_window_size;
+        }
+
+        return result;
+    }
+
+    /**
+     * Get token list for sliding window processing.
+     */
+    _getTokenList(text) {
+        try {
+            const { getTokenizer } = await import('tiktoken');
+            const tokenizer = getTokenizer('gpt2');
+            return tokenizer.encode(text);
+        } catch (e) {
+            console.warn('Failed to load tiktoken. Falling back to word-based tokenization.');
+            return text.split(/\s+/);
+        }
+    }
+
+    /**
+     * Helper to count tokens in a string using tiktoken if available.
+     */
+    _getTokenCount(text) {
+        try {
+            const { getTokenizer } = await import('tiktoken');
+            const tokenizer = getTokenizer('gpt2');
+            return tokenizer.encode(text).length;
+        } catch (e) {
+            console.warn('Failed to load tiktoken. Falling back to word-based token count.');
+            // Fallback: assume 1 token per word
+            return text.split(' ').length;
         }
     }
 
@@ -261,21 +327,6 @@ export class WebLLMEngine {
                     error
                 });
             }
-        }
-    }
-
-    /**
-     * Helper to count tokens in a string using tiktoken if available.
-     */
-    _getTokenCount(text) {
-        try {
-            const { getTokenizer } = await import('tiktoken');
-            const tokenizer = getTokenizer('gpt2');
-            return tokenizer.encode(text).length;
-        } catch (e) {
-            console.warn('Failed to load tiktoken. Falling back to word-based token count.');
-            // Fallback: assume 1 token per word
-            return text.split(' ').length;
         }
     }
 }
