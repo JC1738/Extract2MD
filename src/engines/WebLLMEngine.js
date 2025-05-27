@@ -269,7 +269,6 @@ export class WebLLMEngine {
      */
     _getTokenCount(text) {
         try {
-            // Import tiktoken only when needed and ensure it's available
             const { getTokenizer } = require('tiktoken');
             const tokenizer = getTokenizer('gpt2');
             return tokenizer.encode(text).length;

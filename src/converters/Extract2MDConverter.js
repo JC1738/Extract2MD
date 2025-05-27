@@ -8,9 +8,9 @@ import ConfigValidator from '../utils/ConfigValidator.js';
 // Import tiktoken for accurate token-based splitting
 let tokenizer = null;
 try {
-  // Try to import the browser version of tiktoken (WASM)
+  // Static import to ensure compatibility with module environments
   const { getTokenizer } = await import('tiktoken');
-  tokenizer = await getTokenizer('gpt2'); // Use GPT-2 tokenizer as a default
+  tokenizer = getTokenizer('gpt2'); // Use GPT-2 tokenizer as a default
 } catch (e) {
   console.warn('Failed to load tiktoken. Falling back to word-based splitting.');
 }
