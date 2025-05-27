@@ -163,7 +163,7 @@ export class WebLLMEngine {
     /**
      * Process long prompts using a sliding window approach.
      */
-    _processWithSlidingWindow(prompt, options) {
+    async _processWithSlidingWindow(prompt, options) {
         const { sliding_window_size = 2048 } = options;
         const tokens = this._getTokenList(prompt);
         let result = '';
@@ -171,7 +171,7 @@ export class WebLLMEngine {
 
         while (i < tokens.length) {
             const chunk = tokens.slice(i, i + sliding_window_size).join(' ');
-            const response = this.engine.chat.completions.create({
+            const response = await this.engine.chat.completions.create({
                 messages: [{ role: "user", content: chunk }],
                 temperature: options.temperature || 0.7,
                 max_tokens: options.maxTokens || 4096
