@@ -116,6 +116,12 @@ export class WebLLMEngine {
 
             const tokenCount = this._getTokenCount(prompt);
 
+            this.progressCallback({
+                stage: 'info',
+                message: `Prompt token count: ${tokenCount}, Context window size: ${this.contextWindow}`,
+                progress: 0
+            });
+
             if (tokenCount > this.contextWindow) {
                 this.progressCallback({
                     stage: 'warning',
@@ -235,7 +241,8 @@ export class WebLLMEngine {
             const tokenizer = getTokenizer('gpt2');
             return tokenizer.encode(text);
         } catch (e) {
-            console.warn('Failed to load tiktoken. Falling back to word-based tokenization.');
+            console.error('Failed to load tiktoken. Falling back to word-based tokenization.');
+            // Fallback: split by whitespace
             return text.split(/\s+/);
         }
     }
@@ -249,7 +256,7 @@ export class WebLLMEngine {
             const tokenizer = getTokenizer('gpt2');
             return tokenizer.encode(text).length;
         } catch (e) {
-            console.warn('Failed to load tiktoken. Falling back to word-based token count.');
+            console.error('Failed to load tiktoken. Falling back to word-based token count.');
             // Fallback: assume 1 token per word
             return text.split(' ').length;
         }
