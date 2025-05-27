@@ -269,7 +269,7 @@ export class WebLLMEngine {
      */
     _getTokenCount(text) {
         try {
-            const { getTokenizer } = require('tiktoken');
+            const { getTokenizer } = await import('tiktoken');
             const tokenizer = getTokenizer('gpt2');
             return tokenizer.encode(text).length;
         } catch (e) {

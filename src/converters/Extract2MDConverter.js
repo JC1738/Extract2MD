@@ -8,9 +8,8 @@ import ConfigValidator from '../utils/ConfigValidator.js';
 // Import tiktoken for accurate token-based splitting
 let tokenizer = null;
 try {
-  // Static import to ensure compatibility with module environments
   const { getTokenizer } = await import('tiktoken');
-  tokenizer = getTokenizer('gpt2'); // Use GPT-2 tokenizer as a default
+  tokenizer = getTokenizer('gpt2');
 } catch (e) {
   console.warn('Failed to load tiktoken. Falling back to word-based splitting.');
 }
@@ -30,29 +29,29 @@ export class Extract2MDConverter {
         }
     }
 
-    static async quickConvertOnly(pdfFile, options = {}) {
-        const converter = new Extract2MDConverter(options);
+    static async quickConvertOnly(pdfFile, config) {
+        const converter = new Extract2MDConverter(config);
         return await converter._performQuickConvert(pdfFile);
     }
 
-    static async highAccuracyConvertOnly(pdfFile, options = {}) {
-        const converter = new Extract2MDConverter(options);
+    static async highAccuracyConvertOnly(pdfFile, config) {
+        const converter = new Extract2MDConverter(config);
         return await converter._performHighAccuracyConvert(pdfFile);
     }
 
-    static async quickConvertWithLLM(pdfFile, options = {}) {
-        const converter = new Extract2MDConverter(options);
-        return await converter._performQuickConvertWithLLM(pdfFile);
+    static async quickConvertWithLLM(pdfFile, config) {
+        const converter = new Extract2MDConverter(config);
+        return await converter._processWithLLM(pdfFile);
     }
 
-    static async highAccuracyConvertWithLLM(pdfFile, options = {}) {
-        const converter = new Extract2MDConverter(options);
-        return await converter._performHighAccuracyConvertWithLLM(pdfFile);
+    static async highAccuracyConvertWithLLM(pdfFile, config) {
+        const converter = new Extract2MDConverter(config);
+        return await converter._processWithLLM(pdfFile);
     }
 
-    static async combinedConvertWithLLM(pdfFile, options = {}) {
-        const converter = new Extract2MDConverter(options);
-        return await converter._performCombinedConvertWithLLM(pdfFile);
+    static async combinedConvertWithLLM(pdfFile, config) {
+        const converter = new Extract2MDConverter(config);
+        return await converter._processWithLLM(pdfFile);
     }
 
     _performQuickConvert(pdfFile) {
@@ -60,102 +59,50 @@ export class Extract2MDConverter {
     }
 
     _performHighAccuracyConvert(pdfFile) {
-        // Implementation for high accuracy OCR
+        // Implementation for OCR-based conversion
     }
 
-    async _performQuickConvertWithLLM(pdfFile) {
-        const text = await this._extractTextFromPDF(pdfFile);
-        return await this._processWithLLM(text);
-    }
-
-    async _performHighAccuracyConvertWithLLM(pdfFile) {
-        const text = await this._extractOCRText(pdfFile);
-        return await this._processWithLLM(text);
-    }
-
-    async _performCombinedConvertWithLLM(pdfFile) {
-        const text1 = await this._extractTextFromPDF(pdfFile);
-        const text2 = await this._extractOCRText(pdfFile);
-        const combinedText = `${text1}\n\n${text2}`;
-        return await this._processWithLLM(combinedText);
-    }
-
-    async _extractTextFromPDF(pdfFile) {
-        // Implementation to extract text using PDF.js
-        return "Extracted text from PDF...";
-    }
-
-    async _extractOCRText(pdfFile) {
-        // Implementation for OCR extraction with Tesseract
-        return "OCR extracted text...";
-    }
-
-    async _processWithLLM(text) {
+    async _processWithLLM(pdfFile) {
         if (!this.webllmEngine) {
             this.webllmEngine = new WebLLMEngine(this.config.llm);
         }
 
-        const systemPrompt = this.config.systemPrompts?.combinedExtraction || '';
+        const systemPrompt = this.config.systemPrompts.combinedExtraction || '';
         const systemTokens = this._getTokenCount(systemPrompt);
 
         // Calculate safe chunk size with buffer
         const contextWindowSize = this.config.llm.options?.maxTokens || 4096;
-        const maxChunkTokens = Math.max(1, contextWindowSize - systemTokens - 500); // Add buffer
+        const maxChunkTokens = Math.max(1, contextWindowSize - systemTokens - 500); // Conservative buffer
 
+        const text = await this._extractText(pdfFile);
         const chunks = this._splitTextIntoChunks(text, maxChunkTokens);
+
         let results = [];
 
         for (let i = 0; i < chunks.length; i++) {
             const chunk = chunks[i];
             try {
-                this.progressCallback({
-                    stage: 'llm_chunk_start',
-                    message: `Processing LLM chunk ${i + 1} of ${chunks.length}`,
-                    currentPage: i + 1,
-                    totalPages: chunks.length
-                });
-
-                // Ensure the final prompt (chunk + system prompts) is under context window size
-                const fullPrompt = this._buildFullPrompt(chunk);
+                const fullPrompt = `${systemPrompt}\n\n${chunk}`;
                 if (this._getTokenCount(fullPrompt) > contextWindowSize) {
-                    throw new Error(`Prompt too long: ${this._getTokenCount(fullPrompt)} tokens`);
+                    throw new Error(`Chunk ${i} exceeds token limit: ${this._getTokenCount(fullPrompt)} tokens`);
                 }
-
                 const result = await this.webllmEngine.generate(fullPrompt, this.config.llm.options);
                 results.push(result);
-
-                this.progressCallback({
-                    stage: 'llm_chunk_complete',
-                    message: `LLM chunk ${i + 1} processed`,
-                    currentPage: i + 1,
-                    totalPages: chunks.length
-                });
             } catch (error) {
-                console.error(`LLM chunk ${i + 1} processing failed:`, error);
-                throw new Error(`LLM chunk processing failed: ${error.message}`);
+                console.error(`LLM chunk ${i} processing failed:`, error);
+                throw new Error(`LLM chunk ${i} processing failed: ${error.message}`);
             }
         }
 
         return results.join('\n\n');
     }
 
-    _buildFullPrompt(chunk) {
-        const systemPrompt = this.config.systemPrompts?.combinedExtraction || '';
-        return `${systemPrompt}\n\n${chunk}`;
-    }
-
-    _getTokenCount(text) {
-        if (tokenizer) {
-            return tokenizer.encode(text).length;
-        } else {
-            // Fallback: assume 1 token per word
-            return text.split(' ').length;
-        }
+    _extractText(pdfFile) {
+        // Implementation for text extraction
     }
 
     _splitTextIntoChunks(text, maxTokens = 2000) {
         if (tokenizer) {
-            // Use tiktoken for accurate token-based splitting
             const tokens = tokenizer.encode(text);
             const chunks = [];
             let start = 0;
@@ -170,14 +117,14 @@ export class Extract2MDConverter {
 
             return chunks;
         } else {
-            // Fallback to word-based splitting with smaller chunk size
+            // Fallback to word-based splitting
             const words = text.split(' ');
-            let chunks = [];
+            const chunks = [];
             let currentChunk = [];
 
             for (const word of words) {
                 currentChunk.push(word);
-                if (currentChunk.length >= 512) { // Reduced from 1024 to 512
+                if (currentChunk.length >= 512) { // Smaller chunk size as fallback
                     chunks.push(currentChunk.join(' '));
                     currentChunk = [];
                 }
@@ -190,4 +137,14 @@ export class Extract2MDConverter {
             return chunks;
         }
     }
+
+    _getTokenCount(text) {
+        if (tokenizer) {
+            return tokenizer.encode(text).length;
+        } else {
+            return text.split(' ').length;
+        }
+    }
 }
+
+export default Extract2MDConverter;
