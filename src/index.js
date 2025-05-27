@@ -87,7 +87,7 @@ class LegacyExtract2MDConverter {
             this.WebLLMCreateEngine = window.webLLM.CreateMLCEngine;
             this.WebLLMChatConstructor = window.webLLM.Chat;
         } else {
-             // Fallback if full module import didn't work as expected, try individual imports
+             // Fallback if full module import didn't work as expected, try individual imports/globals
             console.warn('Extract2MD_Debug: Full webllm module not found, relying on individual imports/globals for CreateMLCEngine/Chat.');
             if (typeof ImportedCreateMLCEngine !== 'undefined') {
                 this.WebLLMCreateEngine = ImportedCreateMLCEngine;
@@ -405,7 +405,7 @@ class LegacyExtract2MDConverter {
                 try {
                     await Promise.race([
                         worker.terminate(),
-                        new Promise((resolve) => setTimeout(resolve, 5000)) // Give up after 5 seconds
+                        new Promise(resolve => setTimeout(resolve, 5000)) // Give up after 5 seconds
                     ]);
                 } catch (cleanupError) {
                     console.warn('Failed to cleanup worker after error:', cleanupError);
