@@ -59,6 +59,7 @@ export interface LLMConfig {
   options?: {
     temperature?: number;
     maxTokens?: number;
+    contextWindow?: number; // New field for configurable context window
     [key: string]: any;
   };
 }
@@ -87,11 +88,13 @@ export interface WebLLMEngineConfig {
   progressCallback?: (report: ProgressReport) => void;
   defaultModel?: string;
   customModelConfig?: CustomModelConfig;
+  contextWindow?: number; // New field for configurable context window
 }
 
 export interface GenerationOptions {
   temperature?: number;
   maxTokens?: number;
+  slidingWindowSize?: number; // New field for sliding window size
   [key: string]: any;
 }
 

@@ -14,6 +14,7 @@ export class WebLLMEngine {
         this.progressCallback = config.progressCallback || ((progress) => {});
         this.defaultModel = config.defaultModel || 'Qwen3-0.6B-q4f16_1-MLC';
         this.customModelConfig = config.customModelConfig || null;
+        this.contextWindow = config.contextWindow || 4096; // Configurable context window
     }
 
     /**
@@ -104,8 +105,7 @@ export class WebLLMEngine {
         const {
             temperature = 0.7,
             maxTokens = 4096,
-            context_window_size = 4096,
-            sliding_window_size
+            slidingWindowSize = 1024
         } = options;
 
         try {
@@ -116,14 +116,31 @@ export class WebLLMEngine {
 
             const tokenCount = this._getTokenCount(prompt);
 
-            if (tokenCount > context_window_size) {
-                console.warn(`Prompt exceeds context window size: ${tokenCount} tokens > ${context_window_size}`);
+            if (tokenCount > this.contextWindow) {
+                this.progressCallback({
+                    stage: 'warning',
+                    message: `Prompt exceeds context window size (${this.contextWindow} tokens). Attempting to split with sliding window.`,
+                    progress: 0,
+                });
 
-                if (sliding_window_size && sliding_window_size < tokenCount) {
-                    return this._processWithSlidingWindow(prompt, options);
-                } else {
-                    throw new Error(`Prompt tokens exceed context window size: ${tokenCount}; context window size: ${context_window_size}`);
+                const chunks = this._splitPromptWithSlidingWindow(prompt, this.contextWindow, slidingWindowSize);
+                let fullResponse = '';
+
+                for (const chunk of chunks) {
+                    try {
+                        const response = await this._generateChunk(chunk, { temperature, maxTokens });
+                        fullResponse += response;
+                    } catch (error) {
+                        this.progressCallback({
+                            stage: 'error',
+                            message: `Generation failed for prompt chunk`,
+                            error: error.message,
+                        });
+                        throw error;
+                    }
                 }
+
+                return fullResponse;
             }
 
             const messages = [{ role: "user", content: prompt }];
@@ -161,27 +178,52 @@ export class WebLLMEngine {
     }
 
     /**
-     * Process long prompts using a sliding window approach.
+     * Split a prompt into chunks using a sliding window approach with token-aware splitting.
      */
-    async _processWithSlidingWindow(prompt, options) {
-        const { sliding_window_size = 2048 } = options;
+    _splitPromptWithSlidingWindow(prompt, contextWindowSize, slidingWindowSize) {
         const tokens = this._getTokenList(prompt);
-        let result = '';
-        let i = 0;
+        const chunks = [];
+        let start = 0;
 
-        while (i < tokens.length) {
-            const chunk = tokens.slice(i, i + sliding_window_size).join(' ');
-            const response = await this.engine.chat.completions.create({
-                messages: [{ role: "user", content: chunk }],
-                temperature: options.temperature || 0.7,
-                max_tokens: options.maxTokens || 4096
-            });
-
-            result += (response.choices[0].message.content || '');
-            i += sliding_window_size;
+        while (start < tokens.length) {
+            const end = Math.min(start + contextWindowSize, tokens.length);
+            const chunkTokens = tokens.slice(start, end);
+            const chunkText = chunkTokens.join(' ');
+            chunks.push(chunkText);
+            start += slidingWindowSize;
         }
 
-        return result;
+        this.progressCallback({
+            stage: 'info',
+            message: `Split prompt into ${chunks.length} chunks using sliding window.`,
+            progress: 0,
+        });
+
+        return chunks;
+    }
+
+    /**
+     * Helper to generate a single chunk of text.
+     */
+    _generateChunk(prompt, options) {
+        const { temperature = 0.7, maxTokens = 4096 } = options;
+
+        const messages = [{ role: "user", content: prompt }];
+        
+        const requestOptions = {
+            messages,
+            temperature,
+            max_tokens: maxTokens,
+            ...options
+        };
+
+        return this.engine.chat.completions.create(requestOptions).then(chatCompletion => {
+            if (chatCompletion.choices && chatCompletion.choices.length > 0) {
+                return chatCompletion.choices[0].message.content || '';
+            } else {
+                throw new Error('No response generated from the model.');
+            }
+        });
     }
 
     /**
