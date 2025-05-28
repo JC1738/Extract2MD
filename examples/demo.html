@@ -254,11 +254,10 @@
                 model: "Qwen3-0.6B-q4f16_1-MLC",
                 options: {
                     temperature: 0.7,
-                    maxTokens: 1024 // Max tokens for the LLM's response
-                }, // Added comma here
+                    maxTokens: 3000 // Max tokens for the LLM's response (adjusted for context window)
+                },
                 contextWindow: 4096, // Total context window size for the LLM
-                slidingWindowSize: 1024 // Size of the sliding window for chunking large prompts
-            }, // Removed extra '}' and kept this closing '}' for llm object
+            },
             systemPrompts: {
                 singleExtraction: "Focus on preserving technical accuracy and code examples exactly as they appear in the original document.",
                 combinedExtraction: "Convert the PDF content into Markdown. Focus on intelligently applying Markdown formatting (headings, lists, bold, italics, code blocks, etc.) to accurately represent the document's structure and appearance. DO NOT alter, summarize, or add any new content. The output must be a faithful, verbatim replication of the PDF's text content, presented with appropriate Markdown syntax."

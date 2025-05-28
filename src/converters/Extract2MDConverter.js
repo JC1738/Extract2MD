@@ -7,7 +7,6 @@ import ConfigValidator from '../utils/ConfigValidator.js';
 import TextProcessor from '../utils/TextProcessor.js';
 
 // Import tiktoken for accurate token-based splitting
-
 export class Extract2MDConverter {
     constructor(config = {}) {
         // Get default configuration and validate/normalize user-provided config
@@ -76,8 +75,6 @@ export class Extract2MDConverter {
         try {
             this.config.progressCallback({ stage: 'ocr_worker_init', message: 'Initializing Tesseract OCR worker...' });
             worker = await Tesseract.createWorker(tesseractLang, 1, tesseractOpts);
-            await worker.loadLanguage(tesseractLang);
-            await worker.initialize(tesseractLang);
 
             this.config.progressCallback({ stage: 'ocr_worker_ready', message: 'OCR worker initialized successfully.' });
 
@@ -138,7 +135,13 @@ export class Extract2MDConverter {
 
     async _processWithLLM(pdfFile) {
         if (!this.webllmEngine) {
-            this.webllmEngine = new WebLLMEngine(this.config.llm);
+            this.webllmEngine = new WebLLMEngine({
+                progressCallback: this.config.progressCallback,
+                contextWindow: this.config.llm.contextWindow,
+                slidingWindowSize: this.config.llm.slidingWindowSize,
+                defaultModel: this.config.llm.model,
+                customModelConfig: this.config.llm.customModel
+            });
             // Initialize the WebLLM engine
             await this.webllmEngine.initialize(this.config.llm.model, this.config.llm.options);
         }
@@ -154,7 +157,7 @@ export class Extract2MDConverter {
                 message: `Chunking document for LLM processing...`
             });
 
-            const chunks = this._chunkDocumentForLLM(text, maxTokens);
+            const chunks = this._chunkDocumentForLLM(text, maxTokens, this.config.llm.chunkOverlap || 0);
             let fullResult = '';
 
             for (let i = 0; i < chunks.length; i++) {
@@ -208,10 +211,16 @@ export class Extract2MDConverter {
             const pageText = textContent.items.map(item => item.str).join(' ');
 
             // Enhanced heuristic: check for common PDF extraction issues
+            // - Very short text content (less than 50 characters)
+            // - Presence of common OCR artifacts like en-dash/em-dash patterns (often indicates poor character recognition)
+            // - High proportion of non-alphanumeric characters (e.g., symbols, unreadable characters)
+            // - Low average word length (might indicate garbled text or character-by-character extraction)
+            const alphanumericText = pageText.replace(/[^a-zA-Z0-9]/g, '');
             const isLikelyIncomplete =
                 pageText.trim().length < 50 ||
-                /[\u2013\u2014]/.test(pageText) || // Check for en-dash/em-dash patterns
-                /\b(?:Page|Section)\s*\d+\b/i.test(pageText); // Check for pagination markers
+                /[\u2013\u2014\u2026\u2018\u2019\u201C\u201D]/.test(pageText) || // Common typographic punctuation that can indicate OCR issues
+                (alphanumericText.length > 0 && (pageText.length - alphanumericText.length) / pageText.length > 0.3) || // More than 30% non-alphanumeric
+                (pageText.split(/\s+/).filter(word => word.length > 0).reduce((sum, word) => sum + word.length, 0) / Math.max(1, pageText.split(/\s+/).filter(word => word.length > 0).length) < 3); // Average word length less than 3
 
             if (isLikelyIncomplete) {
                 pagesWithIncompleteExtraction.push(i);
@@ -251,9 +260,6 @@ export class Extract2MDConverter {
                     }
                 });
 
-                await worker.loadLanguage(tesseractLang);
-                await worker.initialize(tesseractLang);
-
                 for (let pageNum of pagesWithIncompleteExtraction) {
                     const page = await pdf.getPage(pageNum);
                     const viewport = page.getViewport({ scale: 2.5 });
@@ -268,7 +274,7 @@ export class Extract2MDConverter {
                     // Use OCR with enhanced configuration
                     const recognition = await worker.recognize(canvas, {
                         tessedit_pageseg_mode: 3, // Automatic page segmentation with OSD
-                        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+                        // tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789' // Removed to allow full character set
                     });
                     
                     const ocrPageText = recognition.data?.text || '';
@@ -303,35 +309,30 @@ export class Extract2MDConverter {
     /**
      * Split a large document into chunks that fit within the LLM's context window.
      */
-    async _chunkDocumentForLLM(text, maxTokens) {
-        // Use tiktoken for accurate token-based splitting
-        const { encode } = await import('tiktoken');
-        const encoder = await encode('cl100k_base');
-        
-        // Split text into tokens
-        const tokens = encoder.encode(text);
-        
-        // Create chunks based on token limits
+    _chunkDocumentForLLM(text, maxTokens, chunkOverlap = 0) { // maxTokens is an approximation here
+        const words = text.split(/\s+/); // Split by whitespace to get words
         const chunks = [];
-        let currentChunk = [];
+        let currentChunkWords = [];
+        const maxWords = Math.floor(maxTokens * 0.75); // Approximate tokens by words (e.g., 1 token ~ 0.75 words)
+        const overlapWords = Math.floor(chunkOverlap * 0.75);
 
-        for (const token of tokens) {
-            currentChunk.push(token);
-            
-            if (currentChunk.length >= maxTokens) {
-                chunks.push(encoder.decode(currentChunk));
-                currentChunk = [];
+        for (let i = 0; i < words.length; i++) {
+            currentChunkWords.push(words[i]);
+
+            if (currentChunkWords.length >= maxWords) {
+                chunks.push(currentChunkWords.join(' '));
+                // Start next chunk with overlap
+                currentChunkWords = currentChunkWords.slice(currentChunkWords.length - overlapWords);
             }
         }
 
-        // Add remaining tokens as final chunk
-        if (currentChunk.length > 0) {
-            chunks.push(encoder.decode(currentChunk));
+        // Add remaining words as final chunk
+        if (currentChunkWords.length > 0) {
+            chunks.push(currentChunkWords.join(' '));
         }
 
         return chunks;
     }
-
 }
 
 export default Extract2MDConverter;

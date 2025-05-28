@@ -8,18 +8,22 @@ const __dirname = path.dirname(__filename);
 const commonConfig = {
   mode: 'production', // or 'development'
   entry: './src/index.js',
+  experiments: {
+    // asyncWebAssembly: true, // Revert: WebAssembly experiments no longer needed without tiktoken
+  },
   module: {
     rules: [
       {
-        test: /\.js$/,
-        exclude: /node_modules/,
+        test: /\.m?js$/, // Apply to .js and .mjs files
+        exclude: /node_modules/, // Revert: Exclude node_modules for babel-loader
         use: {
           loader: 'babel-loader',
           options: {
             presets: ['@babel/preset-env']
           }
         }
-      }
+      },
+      // Revert: .wasm rule no longer needed without tiktoken
     ]
   },
   resolve: {

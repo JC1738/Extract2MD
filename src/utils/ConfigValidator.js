@@ -25,9 +25,12 @@ export class ConfigValidator {
             webllm: {
                 model: 'Qwen3-0.6B-q4f16_1-MLC',
                 customModel: null,
+                contextWindow: 4096, // Default context window size
+                slidingWindowSize: 1024, // Default sliding window size for chunking
                 options: {
-                    temperature: 0.7,
-                    maxTokens: 4096
+                    temperature: 0.7, // Default temperature for LLM generation
+                    maxTokens: 3000, // Default maximum tokens for LLM context window (adjusted to leave room for prompt)
+                    chunkOverlap: 0 // Default overlap for document chunking
                 }
             },
             
@@ -109,6 +112,20 @@ export class ConfigValidator {
             throw new Error('LLM model must be a string');
         }
 
+        // Validate contextWindow
+        if (llmConfig.contextWindow !== undefined) {
+            if (!Number.isInteger(llmConfig.contextWindow) || llmConfig.contextWindow < 1) {
+                throw new Error('LLM contextWindow must be a positive integer');
+            }
+        }
+
+        // Validate slidingWindowSize
+        if (llmConfig.slidingWindowSize !== undefined) {
+            if (!Number.isInteger(llmConfig.slidingWindowSize) || llmConfig.slidingWindowSize < 1) {
+                throw new Error('LLM slidingWindowSize must be a positive integer');
+            }
+        }
+
         // Validate custom model structure
         if (llmConfig.customModel) {
             this.validateCustomModel(llmConfig.customModel);
@@ -163,6 +180,13 @@ export class ConfigValidator {
         if (options.maxTokens !== undefined) {
             if (!Number.isInteger(options.maxTokens) || options.maxTokens < 1) {
                 throw new Error('LLM maxTokens must be a positive integer');
+            }
+        }
+
+        // Validate chunkOverlap
+        if (options.chunkOverlap !== undefined) {
+            if (!Number.isInteger(options.chunkOverlap) || options.chunkOverlap < 0) {
+                throw new Error('LLM chunkOverlap must be a non-negative integer');
             }
         }
     }
