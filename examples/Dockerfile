@@ -2,18 +2,25 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install extract2md and serve
-RUN npm install extract2md serve
+# Copy the entire project into the Docker image
+COPY . /app/extract2md
 
-# Copy demo.html into the image
-COPY demo.html ./demo.html
+# Set working directory to the project root inside the container
+WORKDIR /app/extract2md
 
-# Copy the dist directory from the installed package to /app/dist
-RUN mkdir -p dist && \
-    cp -r node_modules/extract2md/dist/* dist/
+# Install dependencies and build the project
+RUN rm -f package-lock.json && npm cache clean --force && npm install
+RUN npm run build
+
+# Move the built dist directory to /app/dist for serving
+RUN mv dist /app/dist
+
+# Copy demo.html to /app for serving
+COPY examples/demo.html /app/demo.html
 
 # Expose port for the static server
 EXPOSE 8080
 
-# Serve the current directory (demo.html and dist/)
-CMD ["npx", "serve", "--listen", "8080", "."] 
+# Serve the /app directory (which now contains demo.html and dist/)
+WORKDIR /app
+CMD ["npx", "serve", "--listen", "8080", "."]

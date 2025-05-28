@@ -242,7 +242,7 @@
         window.demoConfig = {
             // Set absolute paths for worker files from the server root
             // as recommended in README.md for deployment.
-            pdfJsWorkerSrc: "/dist/pdf.worker.min.mjs",
+            pdfJsWorkerSrc: "../pdf.worker.min.mjs", // Path relative to extract2md.umd.js
             tesseract: {
                 oem: 1,
                 psm: 8,
@@ -254,12 +254,14 @@
                 model: "Qwen3-0.6B-q4f16_1-MLC",
                 options: {
                     temperature: 0.7,
-                    maxTokens: 4096
-                }
-            },
+                    maxTokens: 1024 // Max tokens for the LLM's response
+                }, // Added comma here
+                contextWindow: 4096, // Total context window size for the LLM
+                slidingWindowSize: 1024 // Size of the sliding window for chunking large prompts
+            }, // Removed extra '}' and kept this closing '}' for llm object
             systemPrompts: {
                 singleExtraction: "Focus on preserving technical accuracy and code examples exactly as they appear in the original document.",
-                combinedExtraction: "Create comprehensive documentation by intelligently combining the best elements from both quick extraction and OCR methods. Focus on accuracy and completeness."
+                combinedExtraction: "Convert the PDF content into Markdown. Focus on intelligently applying Markdown formatting (headings, lists, bold, italics, code blocks, etc.) to accurately represent the document's structure and appearance. DO NOT alter, summarize, or add any new content. The output must be a faithful, verbatim replication of the PDF's text content, presented with appropriate Markdown syntax."
             },
             processing: {
                 splitPascalCase: false,

@@ -15,6 +15,7 @@ export class WebLLMEngine {
         this.defaultModel = config.defaultModel || 'Qwen3-0.6B-q4f16_1-MLC';
         this.customModelConfig = config.customModelConfig || null;
         this.contextWindow = config.contextWindow || 4096; // Configurable context window
+        this.slidingWindowSize = config.slidingWindowSize || 1024; // Configurable sliding window size
     }
 
     /**
@@ -104,9 +105,15 @@ export class WebLLMEngine {
 
         const {
             temperature = 0.7,
-            maxTokens = 4096,
-            slidingWindowSize = 1024
+            maxTokens = 4096 // Max tokens for the response
         } = options;
+
+        // Calculate effective context window for the prompt, leaving room for maxTokens response
+        const LLM_OVERHEAD_BUFFER = 256; // Additional buffer for LLM internal overhead and system prompts
+        const effectiveContextWindow = this.contextWindow - maxTokens - LLM_OVERHEAD_BUFFER;
+        if (effectiveContextWindow <= 0) {
+            throw new Error(`Effective context window is too small. contextWindow (${this.contextWindow}) must be greater than maxTokens (${maxTokens}).`);
+        }
 
         try {
             this.progressCallback({
@@ -114,7 +121,12 @@ export class WebLLMEngine {
                 message: 'Generating response...'
             });
 
-            const tokenCount = this._getTokenCount(prompt);
+            const tokenCount = await this._getTokenCount(prompt); // Await token count
+
+            console.log(`[WebLLMEngine] Initial prompt token count: ${tokenCount}`);
+            console.log(`[WebLLMEngine] Configured context window: ${this.contextWindow}`);
+            console.log(`[WebLLMEngine] Effective context window for prompt: ${effectiveContextWindow}`);
+            console.log(`[WebLLMEngine] Sliding window size: ${this.slidingWindowSize}`);
 
             this.progressCallback({
                 stage: 'info',
@@ -122,24 +134,30 @@ export class WebLLMEngine {
                 progress: 0
             });
 
-            if (tokenCount > this.contextWindow) {
+            if (tokenCount > effectiveContextWindow) { // Changed condition to effectiveContextWindow
+                console.log(`[WebLLMEngine] Prompt (${tokenCount}) exceeds effective context window (${effectiveContextWindow}). Splitting...`);
                 this.progressCallback({
                     stage: 'warning',
-                    message: `Prompt exceeds context window size (${this.contextWindow} tokens). Attempting to split with sliding window.`,
+                    message: `Prompt exceeds effective context window size (${effectiveContextWindow} tokens). Attempting to split with sliding window.`,
                     progress: 0,
                 });
 
-                const chunks = this._splitPromptWithSlidingWindow(prompt, this.contextWindow, slidingWindowSize);
+                const chunks = await this._splitPromptWithSlidingWindow(prompt, effectiveContextWindow, this.slidingWindowSize); // Await split
+                console.log(`[WebLLMEngine] Split into ${chunks.length} chunks.`);
                 let fullResponse = '';
 
-                for (const chunk of chunks) {
+                for (let i = 0; i < chunks.length; i++) {
+                    const chunk = chunks[i];
+                    const chunkTokenCount = await this._getTokenCount(chunk); // Await token count for chunk
+                    console.log(`[WebLLMEngine] Processing chunk ${i + 1}/${chunks.length} (tokens: ${chunkTokenCount})...`);
                     try {
                         const response = await this._generateChunk(chunk, { temperature, maxTokens });
                         fullResponse += response;
                     } catch (error) {
+                        console.error(`[WebLLMEngine] Error processing chunk ${i + 1}:`, error);
                         this.progressCallback({
                             stage: 'error',
-                            message: `Generation failed for prompt chunk`,
+                            message: `Generation failed for prompt chunk ${i + 1}`,
                             error: error.message,
                         });
                         throw error;
@@ -186,8 +204,9 @@ export class WebLLMEngine {
     /**
      * Split a prompt into chunks using a sliding window approach with token-aware splitting.
      */
-    _splitPromptWithSlidingWindow(prompt, contextWindowSize, slidingWindowSize) {
-        const tokens = this._getTokenList(prompt);
+    async _splitPromptWithSlidingWindow(prompt, contextWindowSize, slidingWindowSize) { // Made async
+        console.log(`[WebLLMEngine] _splitPromptWithSlidingWindow: contextWindowSize=${contextWindowSize}, slidingWindowSize=${slidingWindowSize}`);
+        const tokens = await this._getTokenList(prompt); // Await token list
         const chunks = [];
         let start = 0;
 
@@ -211,8 +230,10 @@ export class WebLLMEngine {
     /**
      * Helper to generate a single chunk of text.
      */
-    _generateChunk(prompt, options) {
+    async _generateChunk(prompt, options) { // Made async
         const { temperature = 0.7, maxTokens = 4096 } = options;
+        const promptTokenCount = await this._getTokenCount(prompt); // Await token count for prompt
+        console.log(`[WebLLMEngine] _generateChunk: Sending prompt (tokens: ${promptTokenCount}) to web-llm with max_tokens=${maxTokens}`);
 
         const messages = [{ role: "user", content: prompt }];
         
@@ -223,43 +244,33 @@ export class WebLLMEngine {
             ...options
         };
 
-        return this.engine.chat.completions.create(requestOptions).then(chatCompletion => {
+        try {
+            const chatCompletion = await this.engine.chat.completions.create(requestOptions);
             if (chatCompletion.choices && chatCompletion.choices.length > 0) {
                 return chatCompletion.choices[0].message.content || '';
             } else {
                 throw new Error('No response generated from the model.');
             }
-        });
+        } catch (error) {
+            console.error(`[WebLLMEngine] _generateChunk: web-llm create call failed:`, error);
+            throw error;
+        }
     }
 
     /**
      * Get token list for sliding window processing.
      */
-    _getTokenList(text) {
-        try {
-            const { getTokenizer } = await import('tiktoken');
-            const tokenizer = getTokenizer('gpt2');
-            return tokenizer.encode(text);
-        } catch (e) {
-            console.error('Failed to load tiktoken. Falling back to word-based tokenization.');
-            // Fallback: split by whitespace
-            return text.split(/\s+/);
-        }
+    async _getTokenList(text) {
+        console.warn('tiktoken not available. Falling back to word-based tokenization.');
+        return text.split(/\s+/);
     }
 
     /**
      * Helper to count tokens in a string using tiktoken if available.
      */
-    _getTokenCount(text) {
-        try {
-            const { getTokenizer } = await import('tiktoken');
-            const tokenizer = getTokenizer('gpt2');
-            return tokenizer.encode(text).length;
-        } catch (e) {
-            console.error('Failed to load tiktoken. Falling back to word-based token count.');
-            // Fallback: assume 1 token per word
-            return text.split(' ').length;
-        }
+    async _getTokenCount(text) {
+        console.warn('tiktoken not available. Falling back to word-based token count.');
+        return text.split(' ').length;
     }
 
     /**
